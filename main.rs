@@ -11,7 +11,7 @@ struct Game {
 
 impl Game {
     fn get_move(&mut self) {
-        println!("Current player: {}", self.current_player);
+        println!("Current player: {}", self.current_player_name());
         println!("Enter row (0-2) and column (0-2) separated by space:");
 
         let mut input = String::new();
@@ -44,6 +44,19 @@ impl Game {
         } else {
             println!("Invalid input. Try again.");
         }
+    }
+    
+    fn current_marker(&self) -> char {
+        self.current_player
+    }
+
+    fn current_player_name(&self) -> &String {
+        let current_player_name = if self.current_marker() == self.player1_marker {
+            &self.player1
+        } else {
+            &self.player2
+        };
+        current_player_name
     }
 
     fn set_players(&mut self, player1_marker: char, player2_marker: char, player1: String, player2: String) {
@@ -120,7 +133,6 @@ impl Game {
             if row_num < 2 {
                 println!("  ---+---+---");
             }
-        
         }
         println!();
     }
@@ -157,7 +169,6 @@ fn main() {
     
         game.switch_player();
     
-        println!("Current player: {}", game.current_player);
         println!("Enter row (0-2) and column (0-2) separated by space:");
 
         let mut input = String::new();
@@ -194,6 +205,5 @@ fn main() {
         }
     } 
 } 
-
 
 
