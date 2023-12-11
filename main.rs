@@ -1,7 +1,10 @@
 use std::io;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::prelude::*;
+use std::io::Write;
+use std::fs::File;
+use std::io::BufRead;
+use std::path::Path;
 
 struct Game {
     leaderboard: HashMap<String, PlayerStats>,
@@ -169,6 +172,36 @@ impl Game {
         println!();
     }
 
+    fn set_player_names(&mut self, player1_name: String, player2_name: String) -> Result<(), &'static str> {
+        let path = Path::new("namelog.txt");
+        let file = File::open(&path).expect("Failed to open namelog.txt");
+        let reader = io::BufReader::new(file);
+    
+        for line in reader.lines() {
+            let line = line.expect("Failed to read line").to_lowercase().trim().to_string();
+            if line.is_empty() {
+                continue;
+            }
+            if line == player1_name.to_lowercase() || line == player2_name.to_lowercase() {
+                return Err("This name is already in use.");
+            }
+        }
+    
+        self.player1 = player1_name;
+        self.player2 = player2_name;
+    
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open("namelog.txt")
+            .expect("Failed to open namelog.txt");
+    
+        writeln!(file, "{}", self.player1).expect("Failed to write player1 name to namelog.txt");
+        writeln!(file, "{}", self.player2).expect("Failed to write player2 name to namelog.txt");
+    
+        Ok(())
+    }
+
     fn update_leaderboard(&mut self, winner: &str, loser: &str) {
         let winner_stats = self.leaderboard.entry(winner.to_string()).or_insert(PlayerStats::new());
         winner_stats.wins += 1;
@@ -177,27 +210,27 @@ impl Game {
         loser_stats.losses += 1;
     }
 
-    fn write_leaderboard(&self) -> std::io::Result<()> {
-        let mut leaderboard: Vec<(&String, &PlayerStats)> = self.leaderboard.iter().collect();
-        leaderboard.sort_by(|a, b| b.1.wins.cmp(&a.1.wins));
-
+    fn write_leaderboard(&self) -> io::Result<()> {
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .open("leaderboard.txt")?;
 
-        writeln!(file, "---Leaderboard---:")?;
-        for (player, stats) in leaderboard {
-            if stats.wins > 0 {
-                writeln!(file, "{}: {} wins, {} losses", player, stats.wins, stats.losses)?;
-            }
+        let mut leaderboard: Vec<(&String, &PlayerStats)> = self.leaderboard.iter().collect();
+        leaderboard.sort_by(|a, b| b.1.wins.cmp(&a.1.wins));
+
+        for (rank, (player, stats)) in leaderboard.iter().enumerate() {
+            let medal = match rank {
+                0 => "🥇",
+                1 => "🥈",
+                2 => "🥉",
+                _ => "",
+            };
+
+            writeln!(file, "{} {} - Wins: {}, Losses: {}", medal, player, stats.wins, stats.losses)?;
         }
 
         Ok(())
-    }
-
-    fn get_leaderboard(&self) -> &HashMap<String, PlayerStats> {
-        &self.leaderboard
     }
 
 }
@@ -213,31 +246,39 @@ fn main() {
     io::stdin().read_line(&mut player2).expect("Failed to read line");
     let _player2 = player2.trim();
 
+    let player1_name = String::from(player1.clone());
+    let player2_name = String::from(player2.clone());
+
     let mut game = Game::new('X', 'O', "Player 1".to_string(), "Player 2".to_string());
     game.set_players('X', 'O', player1.to_string(), player2.to_string());
-
+    match game.set_player_names(player1_name, player2_name) {
+        Ok(_) => println!("Player names set successfully."),
+        Err(err) => println!("Failed to set player names: {}", err),
+    }
+    
     game.play_game();
 
     loop {
         game.draw_board();
         game.get_move();
 
-        let winner = String::new();
-        let loser = String::new();
-    
         if let Some(winner_name) = game.check_winner() {
             let loser_name = if winner_name == game.player1 { game.player2.clone() } else { game.player1.clone() };
             game.update_leaderboard(&winner_name, &loser_name);
+            match game.set_player_names(game.player1.clone(), game.player2.clone()) {
+                Ok(_) => println!("Player names set successfully."),
+                Err(err) => println!("Failed to set player names: {}", err),
+            }
+            match game.write_leaderboard() {
+                Ok(_) => println!("Leaderboard updated successfully."),
+                Err(e) => println!("Failed to update leaderboard: {}", e),
+            }
             game.write_leaderboard().expect("Failed to write leaderboard");
             break;
         } else if game.board_full_check() {
             println!("It's a draw!");
+            game.set_player_names(game.player1.clone(), game.player2.clone()).unwrap();
             break;
-        }
-
-        match game.write_leaderboard() {
-            Ok(_) => println!("Leaderboard updated successfully."),
-            Err(e) => println!("Failed to update leaderboard: {}", e),
         }
 
         game.switch_player();

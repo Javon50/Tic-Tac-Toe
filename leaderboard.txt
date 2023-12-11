@@ -1,3 +1,4 @@
-Leaderboard:
-1
-: 1 wins, 0 losses
+🥇 Tony
+ - Wins: 1, Losses: 0
+🥈 Luffy
+ - Wins: 0, Losses: 1
