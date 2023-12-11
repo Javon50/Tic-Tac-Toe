@@ -1,12 +1,27 @@
 use std::io;
+use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::prelude::*;
 
 struct Game {
+    leaderboard: HashMap<String, PlayerStats>,
     board: Vec<Vec<char>>,
     current_player: char,
     player1_marker: char,
     player2_marker: char,
     player1: String,
     player2: String,
+}
+
+struct PlayerStats {
+    wins: u32,
+    losses: u32,
+}
+
+impl PlayerStats {
+    fn new() -> PlayerStats {
+        PlayerStats { wins: 0, losses: 0 }
+    }
 }
 
 impl Game {
@@ -45,7 +60,7 @@ impl Game {
             println!("Invalid input. Try again.");
         }
     }
-    
+
     fn current_marker(&self) -> char {
         self.current_player
     }
@@ -59,6 +74,14 @@ impl Game {
         current_player_name
     }
 
+    fn last_player_name(&self) -> &String {
+        if self.current_player == self.player1_marker {
+            &self.player2
+        } else {
+            &self.player1
+        }
+    }
+
     fn set_players(&mut self, player1_marker: char, player2_marker: char, player1: String, player2: String) {
         self.player1_marker = player1_marker;
         self.player2_marker = player2_marker;
@@ -69,8 +92,9 @@ impl Game {
     fn new(player1_marker: char, player2_marker: char, player1: String, player2: String) -> Game {
         let board = vec![vec![' '; 3]; 3];
         let current_player = player1_marker;
+        let leaderboard = HashMap::new();
 
-        Game { board, current_player, player1_marker, player2_marker, player1, player2 }
+        Game { board, current_player, player1_marker, player2_marker, player1, player2, leaderboard }
     }
 
     fn play_game(&self) {
@@ -96,22 +120,30 @@ impl Game {
         self.draw_board();
     }
 
-    fn check_winner(&self) -> Option<char> {
-        for i in 0..3 {
-            if self.board[i][0] != ' ' && self.board[i][0] == self.board[i][1] && self.board[i][1] == self.board[i][2] {
-                return Some(self.board[i][0]);
-            }
-            if self.board[0][i] != ' ' && self.board[0][i] == self.board[1][i] && self.board[1][i] == self.board[2][i] {
-                return Some(self.board[0][i]);
+    fn check_winner(&self) -> Option<String> {
+        let mut winner = None;
+    
+        for row in 0..3 {
+            if self.board[row][0] != ' ' && self.board[row][0] == self.board[row][1] && self.board[row][1] == self.board[row][2] {
+                winner = Some(self.current_player_name().clone());
             }
         }
+    
+        for col in 0..3 {
+            if self.board[0][col] != ' ' && self.board[0][col] == self.board[1][col] && self.board[1][col] == self.board[2][col] {
+                winner = Some(self.current_player_name().clone());
+            }
+        }
+    
         if self.board[0][0] != ' ' && self.board[0][0] == self.board[1][1] && self.board[1][1] == self.board[2][2] {
-            return Some(self.board[0][0]);
+            winner = Some(self.last_player_name().clone());
         }
+        
         if self.board[0][2] != ' ' && self.board[0][2] == self.board[1][1] && self.board[1][1] == self.board[2][0] {
-            return Some(self.board[0][2]);
+            winner = Some(self.last_player_name().clone());
         }
-        None
+    
+        winner
     }
 
     fn board_full_check(&self) -> bool {
@@ -137,6 +169,37 @@ impl Game {
         println!();
     }
 
+    fn update_leaderboard(&mut self, winner: &str, loser: &str) {
+        let winner_stats = self.leaderboard.entry(winner.to_string()).or_insert(PlayerStats::new());
+        winner_stats.wins += 1;
+
+        let loser_stats = self.leaderboard.entry(loser.to_string()).or_insert(PlayerStats::new());
+        loser_stats.losses += 1;
+    }
+
+    fn write_leaderboard(&self) -> std::io::Result<()> {
+        let mut leaderboard: Vec<(&String, &PlayerStats)> = self.leaderboard.iter().collect();
+        leaderboard.sort_by(|a, b| b.1.wins.cmp(&a.1.wins));
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open("leaderboard.txt")?;
+
+        writeln!(file, "---Leaderboard---:")?;
+        for (player, stats) in leaderboard {
+            if stats.wins > 0 {
+                writeln!(file, "{}: {} wins, {} losses", player, stats.wins, stats.losses)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_leaderboard(&self) -> &HashMap<String, PlayerStats> {
+        &self.leaderboard
+    }
+
 }
 
 fn main() {
@@ -158,15 +221,25 @@ fn main() {
     loop {
         game.draw_board();
         game.get_move();
+
+        let winner = String::new();
+        let loser = String::new();
     
-        if let Some(winner) = game.check_winner() {
-            println!("{} wins!", winner);
+        if let Some(winner_name) = game.check_winner() {
+            let loser_name = if winner_name == game.player1 { game.player2.clone() } else { game.player1.clone() };
+            game.update_leaderboard(&winner_name, &loser_name);
+            game.write_leaderboard().expect("Failed to write leaderboard");
             break;
         } else if game.board_full_check() {
             println!("It's a draw!");
             break;
         }
-    
+
+        match game.write_leaderboard() {
+            Ok(_) => println!("Leaderboard updated successfully."),
+            Err(e) => println!("Failed to update leaderboard: {}", e),
+        }
+
         game.switch_player();
     
         println!("Enter row (0-2) and column (0-2) separated by space:");
