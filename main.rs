@@ -64,27 +64,6 @@ impl Game {
         }
     }
 
-    fn current_marker(&self) -> char {
-        self.current_player
-    }
-
-    fn current_player_name(&self) -> &String {
-        let current_player_name = if self.current_marker() == self.player1_marker {
-            &self.player1
-        } else {
-            &self.player2
-        };
-        current_player_name
-    }
-
-    fn last_player_name(&self) -> &String {
-        if self.current_player == self.player1_marker {
-            &self.player2
-        } else {
-            &self.player1
-        }
-    }
-
     fn set_players(&mut self, player1_marker: char, player2_marker: char, player1: String, player2: String) {
         self.player1_marker = player1_marker;
         self.player2_marker = player2_marker;
