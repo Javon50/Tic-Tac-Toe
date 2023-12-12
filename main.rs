@@ -5,6 +5,8 @@ use std::io::Write;
 use std::fs::File;
 use std::io::BufRead;
 use std::path::Path;
+use std::io::BufReader;
+use std::collections::HashSet;
 
 struct Game {
     leaderboard: HashMap<String, PlayerStats>,
@@ -22,6 +24,7 @@ struct PlayerStats {
 }
 
 impl PlayerStats {
+    #[allow(dead_code)]
     fn new() -> PlayerStats {
         PlayerStats { wins: 0, losses: 0 }
     }
@@ -61,6 +64,22 @@ impl Game {
             }
         } else {
             println!("Invalid input. Try again.");
+        }
+    }
+    
+    fn current_player_name(&self) -> &str {
+        if self.current_player == self.player1_marker {
+            &self.player1
+        } else {
+            &self.player2
+        }
+    }
+
+    fn last_player_name(&self) -> &str {
+        if self.current_player == self.player1_marker {
+            &self.player2
+        } else {
+            &self.player1
         }
     }
 
@@ -107,22 +126,22 @@ impl Game {
     
         for row in 0..3 {
             if self.board[row][0] != ' ' && self.board[row][0] == self.board[row][1] && self.board[row][1] == self.board[row][2] {
-                winner = Some(self.current_player_name().clone());
+                winner = Some(self.current_player_name().to_string());
             }
         }
     
         for col in 0..3 {
             if self.board[0][col] != ' ' && self.board[0][col] == self.board[1][col] && self.board[1][col] == self.board[2][col] {
-                winner = Some(self.current_player_name().clone());
+                winner = Some(self.current_player_name().to_string());
             }
         }
     
         if self.board[0][0] != ' ' && self.board[0][0] == self.board[1][1] && self.board[1][1] == self.board[2][2] {
-            winner = Some(self.last_player_name().clone());
+            winner = Some(self.last_player_name().to_string());
         }
         
         if self.board[0][2] != ' ' && self.board[0][2] == self.board[1][1] && self.board[1][1] == self.board[2][0] {
-            winner = Some(self.last_player_name().clone());
+            winner = Some(self.last_player_name().to_string());
         }
     
         winner
@@ -151,65 +170,87 @@ impl Game {
         println!();
     }
 
-    fn set_player_names(&mut self, player1_name: String, player2_name: String) -> Result<(), &'static str> {
+    fn set_player_names(&mut self, player1: &str, player2: &str) -> io::Result<()> {
         let path = Path::new("namelog.txt");
-        let file = File::open(&path).expect("Failed to open namelog.txt");
-        let reader = io::BufReader::new(file);
-    
-        for line in reader.lines() {
-            let line = line.expect("Failed to read line").to_lowercase().trim().to_string();
-            if line.is_empty() {
-                continue;
-            }
-            if line == player1_name.to_lowercase() || line == player2_name.to_lowercase() {
-                return Err("This name is already in use.");
-            }
+        let file = OpenOptions::new().read(true).write(true).create(true).open(&path)?;
+        let reader = BufReader::new(&file);
+        let names: HashSet<String> = reader.lines().map(|l| l.unwrap()).collect();
+
+        if names.contains(&player1.to_string()) || names.contains(&player2.to_string()) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Name already exists"));
         }
-    
-        self.player1 = player1_name;
-        self.player2 = player2_name;
-    
-        let mut file = OpenOptions::new()
-            .write(true)
-            .append(true)
-            .open("namelog.txt")
-            .expect("Failed to open namelog.txt");
-    
-        writeln!(file, "{}", self.player1).expect("Failed to write player1 name to namelog.txt");
-        writeln!(file, "{}", self.player2).expect("Failed to write player2 name to namelog.txt");
-    
+
+        let mut file = OpenOptions::new().append(true).open(&path)?;
+        writeln!(file, "{}", player1)?;
+        writeln!(file, "{}", player2)?;
+
+        self.player1 = player1.to_string();
+        self.player2 = player2.to_string();
+
+        self.leaderboard.entry(player1.to_string()).or_insert(PlayerStats { wins: 0, losses: 0 });
+        self.leaderboard.entry(player2.to_string()).or_insert(PlayerStats { wins: 0, losses: 0 });
+
         Ok(())
     }
 
     fn update_leaderboard(&mut self, winner: &str, loser: &str) {
-        let winner_stats = self.leaderboard.entry(winner.to_string()).or_insert(PlayerStats::new());
+        let winner_stats = self.leaderboard.get_mut(winner).unwrap();
         winner_stats.wins += 1;
 
-        let loser_stats = self.leaderboard.entry(loser.to_string()).or_insert(PlayerStats::new());
+        let loser_stats = self.leaderboard.get_mut(loser).unwrap();
         loser_stats.losses += 1;
     }
 
-    fn write_leaderboard(&self) -> io::Result<()> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open("leaderboard.txt")?;
+    fn load_leaderboard(&mut self) -> io::Result<()> {
+        let path = Path::new("leaderboard.txt");
+        let file = File::open(&path)?;
+        let reader = BufReader::new(file);
 
-        let mut leaderboard: Vec<(&String, &PlayerStats)> = self.leaderboard.iter().collect();
-        leaderboard.sort_by(|a, b| b.1.wins.cmp(&a.1.wins));
-
-        for (rank, (player, stats)) in leaderboard.iter().enumerate() {
-            let medal = match rank {
-                0 => "🥇",
-                1 => "🥈",
-                2 => "🥉",
-                _ => "",
-            };
-
-            writeln!(file, "{} {} - Wins: {}, Losses: {}", medal, player, stats.wins, stats.losses)?;
+        for line in reader.lines() {
+            let line = line?;
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() < 3 {
+                continue;
+            }
+            let name = parts[0].to_string();
+            let wins = parts[1].parse().unwrap_or(0);
+            let losses = parts[2].parse().unwrap_or(0);
+            self.leaderboard.insert(name, PlayerStats { wins, losses });
         }
 
         Ok(())
+    }
+
+    fn write_leaderboard(&self) -> io::Result<()> {
+        let path = Path::new("leaderboard.txt");
+        let mut file = File::create(&path)?;
+    
+        writeln!(file, "Name        Wins        Losses")?;
+    
+        for (name, stats) in &self.leaderboard {
+            writeln!(file, "{}              {}            {}", name, stats.wins, stats.losses)?;
+        }
+    
+        Ok(())
+    }
+
+    fn game_reset(&mut self) {
+        self.board = vec![vec![' '; 3]; 3];
+        self.current_player = self.player1_marker;
+
+        let y = true;
+        let n = false;
+
+        println!("{} reset game? y/n", self.current_player_name());
+        if y {
+            self.play_game();
+        }
+        if n {
+            println!("{} wins!", self.current_player_name());
+        }
+        else {
+            println!("Invalid input. Try again.");
+        }
     }
 
 }
@@ -227,10 +268,12 @@ fn main() {
 
     let player1_name = String::from(player1.clone());
     let player2_name = String::from(player2.clone());
+    
+
 
     let mut game = Game::new('X', 'O', "Player 1".to_string(), "Player 2".to_string());
     game.set_players('X', 'O', player1.to_string(), player2.to_string());
-    match game.set_player_names(player1_name, player2_name) {
+    match game.set_player_names(&player1_name, &player2_name) {
         Ok(_) => println!("Player names set successfully."),
         Err(err) => println!("Failed to set player names: {}", err),
     }
@@ -243,11 +286,12 @@ fn main() {
 
         if let Some(winner_name) = game.check_winner() {
             let loser_name = if winner_name == game.player1 { game.player2.clone() } else { game.player1.clone() };
-            game.update_leaderboard(&winner_name, &loser_name);
-            match game.set_player_names(game.player1.clone(), game.player2.clone()) {
-                Ok(_) => println!("Player names set successfully."),
-                Err(err) => println!("Failed to set player names: {}", err),
-            }
+            let _ = game.update_leaderboard(&winner_name, &loser_name);
+
+            match game.load_leaderboard() {
+                Ok(_) => println!("Leaderboard loaded successfully."),
+                Err(e) => println!("Failed to load leaderboard: {}", e),
+            }   
             match game.write_leaderboard() {
                 Ok(_) => println!("Leaderboard updated successfully."),
                 Err(e) => println!("Failed to update leaderboard: {}", e),
@@ -256,7 +300,7 @@ fn main() {
             break;
         } else if game.board_full_check() {
             println!("It's a draw!");
-            game.set_player_names(game.player1.clone(), game.player2.clone()).unwrap();
+            game.set_player_names(&game.player1.clone(), &game.player2.clone()).unwrap();
             break;
         }
 
@@ -282,6 +326,29 @@ fn main() {
                     if let Some(winner) = game.check_winner() {
                         game.draw_board();
                         println!("Player {} wins!", winner);
+                    
+                        let _ = game.update_leaderboard(&winner, &game.current_player.to_string());
+                    
+                        game.switch_player();
+                                     
+                        match game.write_leaderboard() {
+                            Ok(_) => println!("Leaderboard updated successfully."),
+                            Err(e) => println!("Failed to update leaderboard: {}", e),
+                        }
+                        
+                        println!("{} reset game? y/n", game.current_player_name());
+                        let mut rematch_answer = String::new();
+                        io::stdin().read_line(&mut rematch_answer).unwrap();
+
+                        if rematch_answer.trim().to_lowercase() == "y" {
+                            game.game_reset();
+                        } else if rematch_answer.trim().to_lowercase() == "n" {
+                            println!("{} wins!", game.current_player_name());
+                        } else {
+                            println!("{} wins!", game.current_player_name());
+                            break;
+                        }
+        
                         break;
                     } else if game.board_full_check() {
                         game.draw_board();
@@ -298,5 +365,3 @@ fn main() {
         }
     } 
 } 
-
-

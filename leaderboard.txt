@@ -1,4 +1,5 @@
-🥇 Tony
- - Wins: 1, Losses: 0
-🥈 Luffy
- - Wins: 0, Losses: 1
+Name        Wins        Losses
+Tony
+              1            0
+Luffy
+              0            1
