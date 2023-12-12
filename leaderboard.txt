@@ -1,5 +1,1 @@
-Name        Wins        Losses
-Tony
-              1            0
-Luffy
-              0            1
+
