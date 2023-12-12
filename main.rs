@@ -38,7 +38,13 @@ impl Game {
         println!("Enter row (0-2) and column (0-2) separated by space:");
 
         let mut input = String::new();
-        io::stdin().read_line(&mut input).expect("Failed to read line");
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => {},
+            Err(e) => {
+                println!("Failed to read line: {}", e);
+                return;
+            }
+        }
 
         let coordinates: Vec<usize> = input
             .split_whitespace()
@@ -218,12 +224,14 @@ impl Game {
         Ok(())
     }
 
-    fn update_leaderboard(&mut self, winner: &str, loser: &str) {
-        let winner_stats = self.leaderboard.get_mut(winner).unwrap();
+    fn update_leaderboard(&mut self, winner: &str, loser: &str) -> Result<(), Box<dyn Error>> {
+        let winner_stats = self.leaderboard.entry(winner.to_string()).or_insert(PlayerStats { wins: 0, losses: 0 });
         winner_stats.wins += 1;
-
-        let loser_stats = self.leaderboard.get_mut(loser).unwrap();
+    
+        let loser_stats = self.leaderboard.entry(loser.to_string()).or_insert(PlayerStats { wins: 0, losses: 0 });
         loser_stats.losses += 1;
+    
+        Ok(())
     }
 
     fn load_leaderboard(&mut self) -> io::Result<()> {
@@ -249,40 +257,18 @@ impl Game {
     fn write_leaderboard(&self) -> io::Result<()> {
         let path = Path::new("leaderboard.txt");
         let mut file = File::create(&path)?;
-        let mut wins = 0;
-        let mut losses = 0;
+        let mut total_wins = 0;
+        let mut total_losses = 0;
     
         writeln!(file, "Name        Wins        Losses")?;
     
         for (name, stats) in &self.leaderboard {
-            writeln!(file, "{}            {}            {}", name, stats.wins, stats.losses)?;
-        }
-
-        for (name, stats) in &self.leaderboard {
-            wins += stats.wins;
-            losses += stats.losses;
+            writeln!(file, "{}            {}            {}", name, total_wins, total_losses)?;
+            total_wins += stats.wins;
+            total_losses += stats.losses;
         }
     
         Ok(())
-    }
-
-    fn game_reset(&mut self) {
-        self.board = vec![vec![' '; 3]; 3];
-        self.current_player = self.player1_marker;
-
-        let y = true;
-        let n = false;
-
-        println!("{} reset game? y/n", self.current_player_name());
-        if y {
-            self.play_game();
-        }
-        if n {
-            println!("{} wins!", self.current_player_name());
-        }
-        else {
-            println!("Invalid input. Try again.");
-        }
     }
 
 }
@@ -300,11 +286,13 @@ fn main() {
 
     let player1_name = String::from(player1.clone());
     let player2_name = String::from(player2.clone());
-    
+    let mut game_over = false; 
+
 
 
     let mut game = Game::new('X', 'O', "Player 1".to_string(), "Player 2".to_string());
     game.set_players('X', 'O', player1.to_string(), player2.to_string());
+
     match game.check_player_names(&player1_name, &player2_name) {
         Ok(_) => println!("Player names checked successfully."),
         Err(err) => println!("Failed to check player names: {}", err),
@@ -316,94 +304,93 @@ fn main() {
     
     game.play_game();
 
-    loop {
+    'game_loop: loop {
         game.draw_board();
         game.get_move();
-
+    
         if let Some(winner_name) = game.check_winner() {
-            let loser_name = if winner_name == game.player1 { game.player2.clone() } else { game.player1.clone() };
-            let _ = game.update_leaderboard(&winner_name, &loser_name);
-            match game.set_player_names(player1.clone(), player2.clone()) {
+            let _loser_name = if winner_name == game.player1 { game.player2.clone() } else { game.player1.clone() };
+            match game.update_leaderboard(&player1, &player2) {
                 Ok(_) => {},
-                Err(e) => {
-                    println!("Error: {}", e);
-                    break;
-                }
-            }
-            match game.load_leaderboard() {
-                Ok(_) => println!("Leaderboard loaded successfully."),
-                Err(e) => println!("Failed to load leaderboard: {}", e),
-            }   
-            match game.write_leaderboard() {
-                Ok(_) => println!("Leaderboard updated successfully."),
                 Err(e) => println!("Failed to update leaderboard: {}", e),
             }
-            game.write_leaderboard().expect("Failed to write leaderboard");
-            break;
-        } else if game.board_full_check() {
-            println!("It's a draw!");
-            game.set_player_names(game.player1.clone(), game.player2.clone()).unwrap();
-            break;
+            match game.load_leaderboard() {
+                Ok(_) => {},
+                Err(e) => println!("Failed to load leaderboard: {}", e),
+            }
+    
+            break 'game_loop; 
+        } else {
+            println!("No winner yet.");
         }
-
+    
+        if game.board_full_check() {
+            break 'game_loop;
+        }
+    
         game.switch_player();
     
         println!("Enter row (0-2) and column (0-2) separated by space:");
-
+    
         let mut input = String::new();
-        io::stdin().read_line(&mut input).expect("Failed to read line");
+    
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => {},
+            Err(e) => {
+                println!("Failed to read line: {}", e);
+                continue;
+            }
+        }
 
         let coordinates: Vec<usize> = input
+            .trim()
             .split_whitespace()
-            .filter_map(|s| s.parse().ok())
+            .map(|s| s.parse().unwrap())
             .collect();
 
-        if coordinates.len() == 2 {
-            let (row, col) = (coordinates[0], coordinates[1]);
-
-            match game.make_move(row, col) {
-                Ok(_) => {
-                    game.switch_player();
-
-                    if let Some(winner) = game.check_winner() {
-                        game.draw_board();
-                        println!("Player {} wins!", winner);
-                    
-                        let _ = game.update_leaderboard(&winner, &game.current_player.to_string());
-                    
+            if coordinates.len() == 2 {
+                let (row, col) = (coordinates[0], coordinates[1]);
+                match game.make_move(row, col) {
+                    Ok(_) => {
+                        // Check for a winner immediately after a move is made
+                        if let Some(winner) = game.check_winner() {
+                            game.draw_board();
+                            println!("Player {} wins!", winner);
+            
+                            let _ = game.update_leaderboard(&winner, &game.current_player.to_string());
+            
+                            match game.write_leaderboard() {
+                                Ok(_) => println!("Leaderboard updated successfully."),
+                                Err(e) => println!("Failed to update leaderboard: {}", e),
+                            }
+            
+                            if game_over {
+                                break 'game_loop; 
+                            }
+                        }
+            
+                        // Check if the game is over immediately after a move is made
+                        if game_over {
+                            break; // Break out of the main game loop if the game is over
+                        }
+            
+                        // Switch players only if the game is not over
                         game.switch_player();
-                                     
-                        match game.write_leaderboard() {
-                            Ok(_) => println!("Leaderboard updated successfully."),
-                            Err(e) => println!("Failed to update leaderboard: {}", e),
-                        }
-                        
-                        println!("{} reset game? y/n", game.current_player_name());
-                        let mut rematch_answer = String::new();
-                        io::stdin().read_line(&mut rematch_answer).unwrap();
-
-                        if rematch_answer.trim().to_lowercase() == "y" {
-                            game.game_reset();
-                        } else if rematch_answer.trim().to_lowercase() == "n" {
-                            println!("{} wins!", game.current_player_name());
-                        } else {
-                            println!("{} wins!", game.current_player_name());
-                            break;
-                        }
-        
-                        break;
-                    } else if game.board_full_check() {
-                        game.draw_board();
-                        println!("Draw");
-                        break;
+                    }
+                    Err(_) => {
+                        println!("Invalid move. Try again.");
                     }
                 }
-                Err(_) => {
-                    println!("Invalid move. Try again.");
-                }
             }
-        } else {
-            println!("Invalid input. Try again.");
-        }
-    } 
-} 
+            
+            if game.board_full_check() {
+                game.draw_board();
+                println!("Draw");
+                game_over = true; 
+            }
+            
+            if game_over {
+                break 'game_loop; // Break out of the main game loop if the game is over
+            }
+    }
+}
