@@ -90,6 +90,27 @@ impl Game {
         self.player2 = player2;
     }
 
+    fn check_players(&self) -> Result<(), &'static str> {
+        let path = Path::new("namelog.txt");
+        let mut names = HashSet::new();
+        let file = OpenOptions::new().read(true).write(true).create(true).open(&path).unwrap(); 
+        let reader = BufReader::new(&file); 
+    
+        for line in reader.lines() {
+            let name_line = line.unwrap().trim().to_string();  // Trim the newline characters
+            let name_parts: Vec<&str> = name_line.split_whitespace().collect();
+            for name in name_parts {
+                names.insert(name.to_string());
+            }
+        }
+    
+        if names.contains(&self.player1.trim().to_string()) || names.contains(&self.player2.trim().to_string()) {
+            Err("Player name already exists. Try again.")
+        } else {
+            Ok(())
+        }
+    }
+
     fn new(player1_marker: char, player2_marker: char, player1: String, player2: String) -> Game {
         let board = vec![vec![' '; 3]; 3];
         let current_player = player1_marker;
@@ -172,20 +193,24 @@ impl Game {
 
     fn set_player_names(&mut self, player1: &str, player2: &str) -> io::Result<()> {
         let path = Path::new("namelog.txt");
-        let file = OpenOptions::new().read(true).write(true).create(true).open(&path)?;
-        let reader = BufReader::new(&file);
-        let names: HashSet<String> = reader.lines().map(|l| l.unwrap()).collect();
+        let mut names = HashSet::new();
+        let file = OpenOptions::new().read(true).write(true).create(true).open(&path)?; 
+        let reader = BufReader::new(&file); 
+        for line in reader.lines() {
+            let name = line?.trim().to_string();  // Trim the newline characters
+            names.insert(name);
+        }
 
-        if names.contains(&player1.to_string()) || names.contains(&player2.to_string()) {
+        if names.contains(&player1.trim().to_string()) || names.contains(&player2.trim().to_string()) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Name already exists"));
         }
 
         let mut file = OpenOptions::new().append(true).open(&path)?;
-        writeln!(file, "{}", player1)?;
-        writeln!(file, "{}", player2)?;
+        writeln!(file, "{}", player1.trim())?;  // Trim the newline characters
+        writeln!(file, "{}", player2.trim())?;
 
-        self.player1 = player1.to_string();
-        self.player2 = player2.to_string();
+        self.player1 = player1.trim().to_string();  // Trim the newline characters
+        self.player2 = player2.trim().to_string();
 
         self.leaderboard.entry(player1.to_string()).or_insert(PlayerStats { wins: 0, losses: 0 });
         self.leaderboard.entry(player2.to_string()).or_insert(PlayerStats { wins: 0, losses: 0 });
@@ -266,16 +291,25 @@ fn main() {
     io::stdin().read_line(&mut player2).expect("Failed to read line");
     let _player2 = player2.trim();
 
-    let player1_name = String::from(player1.clone());
-    let player2_name = String::from(player2.clone());
-    
-
+    //let player1_name = String::from(player1.clone());
+    //let player2_name = String::from(player2.clone());
 
     let mut game = Game::new('X', 'O', "Player 1".to_string(), "Player 2".to_string());
     game.set_players('X', 'O', player1.to_string(), player2.to_string());
-    match game.set_player_names(&player1_name, &player2_name) {
+
+    match game.set_player_names(&player1, &player2) {
         Ok(_) => println!("Player names set successfully."),
-        Err(err) => println!("Failed to set player names: {}", err),
+        Err(e) => println!("Failed to set player names: {}", e),
+    }
+
+    match game.check_players() {
+        Ok(_) => {
+            println!("Player names checked successfully.");
+        }
+        Err(error) => {
+            println!("{}", error);
+            return;
+        }
     }
     
     game.play_game();
@@ -335,7 +369,7 @@ fn main() {
                             Ok(_) => println!("Leaderboard updated successfully."),
                             Err(e) => println!("Failed to update leaderboard: {}", e),
                         }
-                        
+
                         println!("{} reset game? y/n", game.current_player_name());
                         let mut rematch_answer = String::new();
                         io::stdin().read_line(&mut rematch_answer).unwrap();
