@@ -255,17 +255,18 @@ impl Game {
     }
 
     fn write_leaderboard(&self) -> io::Result<()> {
-        let path = Path::new("leaderboard.txt");
-        let mut file = File::create(&path)?;
-        let mut total_wins = 0;
-        let mut total_losses = 0;
+        let mut leaderboard: Vec<(&String, &PlayerStats)> = self.leaderboard.iter().collect();
+        leaderboard.sort_by(|a, b| b.1.wins.cmp(&a.1.wins));
     
-        writeln!(file, "Name        Wins        Losses")?;
+        let mut file = File::create("leaderboard.txt")?;
     
-        for (name, stats) in &self.leaderboard {
-            writeln!(file, "{}            {}            {}", name, total_wins, total_losses)?;
-            total_wins += stats.wins;
-            total_losses += stats.losses;
+        // Write the header
+        writeln!(file, "{:<5}{:<10}{:<10}{:<10}", "Rank", "Name", "Wins", "Losses")?;
+    
+        // Write the leaderboard
+        for (rank, (name, stats)) in leaderboard.iter().enumerate() {
+            let name = name.replace("\n", "").replace("\r", ""); // Remove newline characters from the name
+            writeln!(file, "{:<5}{:<10}{:<10}{:<10}", rank + 1, name, stats.wins, stats.losses)?;
         }
     
         Ok(())
@@ -309,16 +310,19 @@ fn main() {
         game.get_move();
     
         if let Some(winner_name) = game.check_winner() {
-            let _loser_name = if winner_name == game.player1 { game.player2.clone() } else { game.player1.clone() };
-            match game.update_leaderboard(&player1, &player2) {
-                Ok(_) => {},
+            let loser_name = if winner_name == game.player1 { game.player2.clone() } else { game.player1.clone() };
+            match game.update_leaderboard(&winner_name, &loser_name){
+                Ok(_) => println!("Leaderboard updated successfully."),
                 Err(e) => println!("Failed to update leaderboard: {}", e),
+            }
+            match game.write_leaderboard() {
+                Ok(_) => {},
+                Err(e) => println!("Failed to write leaderboard: {}", e),
             }
             match game.load_leaderboard() {
                 Ok(_) => {},
                 Err(e) => println!("Failed to load leaderboard: {}", e),
             }
-    
             break 'game_loop; 
         } else {
             println!("No winner yet.");
