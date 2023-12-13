@@ -9,33 +9,33 @@ use std::path::Path;
 use std::io::BufReader;
 use std::collections::HashSet;
 use std::error::Error;
+use std::fmt;
 
 struct Game {
     leaderboard: HashMap<String, PlayerStats>,
-    namelog: HashSet<String>,
+    namelog: Vec<String>,
     board: Vec<Vec<char>>,
     current_player: char,
     player1_marker: char,
     player2_marker: char,
-    player1: String,
-    player2: String,
+    player1: Player,
+    player2: Player,
 }
 
+#[derive(Clone)]
 struct Player {
     name: String,
-    wins: u32,
-    losses: u32,
+    stats: PlayerStats,
 }
-
+#[derive(Clone)]
 struct PlayerStats {
     wins: u32,
     losses: u32,
 }
 
-impl PlayerStats {
-    #[allow(dead_code)]
-    fn new() -> PlayerStats {
-        PlayerStats { wins: 0, losses: 0 }
+impl fmt::Display for Player {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.name)
     }
 }
 
@@ -84,39 +84,39 @@ impl Game {
     
     fn current_player_name(&self) -> &str {
         if self.current_player == self.player1_marker {
-            &self.player1
+            &self.player1.name
         } else {
-            &self.player2
+            &self.player2.name
         }
     }
 
     fn last_player_name(&self) -> &str {
         if self.current_player == self.player1_marker {
-            &self.player2
+            &self.player2.name
         } else {
-            &self.player1
+            &self.player1.name
         }
     }
 
-    fn set_players(&mut self, player1_marker: char, player2_marker: char, player1: String, player2: String) {
+    fn set_players(&mut self, player1_marker: char, player2_marker: char, player1: &Player, player2: &Player) {
         self.player1_marker = player1_marker;
         self.player2_marker = player2_marker;
-        self.player1 = player1;
-        self.player2 = player2;
+        self.player1 = player1.clone();
+        self.player2 = player2.clone();
     }
 
-    fn new(player1_marker: char, player2_marker: char, player1: String, player2: String) -> Game {
+    fn new(player1_marker: char, player2_marker: char, player1: &Player, player2: &Player) -> Game {
         let board = vec![vec![' '; 3]; 3];
         let current_player = player1_marker;
         let leaderboard = HashMap::new();
-        let namelog = HashSet::new();
+        let namelog = Vec::new();
 
-        Game { board, current_player, player1_marker, player2_marker, player1, player2, leaderboard, namelog }
+        Game { board, current_player, player1_marker, player2_marker, player1: player1.clone(), player2: player2.clone(), leaderboard, namelog }
     }
 
     fn play_game(&self) {
         println!("Welcome to Tic Tac Toe!");
-        println!("{} goes first", self.player1);
+        println!("{} goes first", self.player1.name);
     }
     
     fn make_move(&mut self, row: usize, col: usize) -> Result<(), &str> {
@@ -205,45 +205,44 @@ impl Game {
         writeln!(file, "{}", player1_trimmed)?;
         writeln!(file, "{}", player2_trimmed)?;
     
-        self.player1 = player1_trimmed.clone();
-        self.player2 = player2_trimmed.clone();
+        self.namelog.push(player1_trimmed.clone());
+        self.namelog.push(player2_trimmed.clone());
+        self.player1 = Player { name: player1_trimmed.clone(), stats: PlayerStats { wins: 0, losses: 0 } };
+        self.player2 = Player { name: player2_trimmed.clone(), stats: PlayerStats { wins: 0, losses: 0 } };
     
         self.leaderboard.entry(player1_trimmed.clone()).or_insert(PlayerStats { wins: 0, losses: 0 });
         self.leaderboard.entry(player2_trimmed.clone()).or_insert(PlayerStats { wins: 0, losses: 0 });
     
         Ok(())
     }
+    // read the stats of the players
 
-    fn read_leaderboard(&mut self) -> Result<(), Box<dyn Error>> {
-        let file = match File::open("leaderboard.txt") {
-            Ok(file) => file,
-            Err(e) => {
-                eprintln!("Failed to open leaderboard file: {}", e);
-                return Err(e.into());
-            }
-        };
-    
+    fn read_leaderboard(&mut self) -> io::Result<()> {
+        let file = File::open("leaderboard.txt")?;
         let reader = BufReader::new(file);
     
-        for line in reader.lines() {
-            let line = match line {
-                Ok(line) => line,
-                Err(e) => {
-                    eprintln!("Failed to read line: {}", e);
-                    continue;
-                }
-            };
+        // Skip the header line
+        let mut lines = reader.lines();
+        if let Some(_) = lines.next() {
+            for line in lines {
+                let line = line?;
     
-            let parts: Vec<&str> = line.split_whitespace().collect();
+                let parts: Vec<&str> = line.split_whitespace().collect();
     
-            if parts.len() >= 4 {
-                let name = parts[1].to_string();
-                match (parts[2].parse(), parts[3].parse()) {
-                    (Ok(wins), Ok(losses)) => {
-                        self.leaderboard.insert(name, PlayerStats { wins, losses });
-                    }
-                    _ => {
-                        eprintln!("");
+                if parts.len() >= 4 {
+                    let name = parts[1].to_string();
+                    match (parts[2].parse(), parts[3].parse()) {
+                        (Ok(wins), Ok(losses)) => {
+                            // Update the leaderboard
+                            self.leaderboard.insert(name.clone(), PlayerStats { wins, losses });
+                            // Update the namelog
+                            if !self.namelog.contains(&name) {
+                                self.namelog.push(name);
+                            }
+                        }
+                        _ => {
+                            eprintln!("Failed to parse wins and losses.");
+                        }
                     }
                 }
             }
@@ -252,7 +251,7 @@ impl Game {
         Ok(())
     }
 
-    fn check_player_names(&self, player1: &str, player2: &str) -> Result<(), Box<dyn Error>> {
+    fn check_player_names(&self, player1: &Player, player2: &Player) -> Result<(), Box<dyn Error>> {
         let namelog = fs::read_to_string("namelog.txt")?;
         let names: HashSet<String> = namelog
             .lines()
@@ -260,8 +259,8 @@ impl Game {
             .map(|line| line.trim().to_string())
             .collect();
     
-        let player1_trimmed = player1.trim().to_string();
-        let player2_trimmed = player2.trim().to_string();
+        let player1_trimmed = player1.name.trim().to_string();
+        let player2_trimmed = player2.name.trim().to_string();
     
         if !names.contains(&player1_trimmed) || !names.contains(&player2_trimmed) {
             return Err("Name not found.".into());
@@ -270,90 +269,36 @@ impl Game {
         Ok(())
     }
 
-    fn update_leaderboard(&mut self, player_name: &str, win: bool) -> io::Result<()> {
-        let path = Path::new("leaderboard.txt");
-    
-        // Read the leaderboard file
-        let file = File::open(&path)?;
-        let reader = io::BufReader::new(file);
-    
-        // Parse the leaderboard into a vector of Player structs
-        let mut leaderboard: Vec<Player> = Vec::new();
-        for line in reader.lines() {
-            let line = line?;
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() == 3 {
-                let player = Player {
-                    name: parts[0].to_string(),
-                    wins: parts[1].parse().unwrap(),
-                    losses: parts[2].parse().unwrap(),
-                };
-                leaderboard.push(player);
-            }
-        }
-    
-        // Find the player and update their win/loss count
-        for player in &mut leaderboard {
-            if player.name == player_name {
-                if win {
-                    player.wins += 1;
-                } else {
-                    player.losses += 1;
-                }
-                break;
-            }
-        }
-    
-        // Write the updated leaderboard back to the file
-        let mut file = File::create(&path)?;
-        for player in &leaderboard {
-            writeln!(file, "{} {} {}", player.name, player.wins, player.losses)?;
-        }
-    
-        Ok(())
+    fn load_names(&self) -> Result<Vec<String>, Box<dyn Error>> {
+        let file = File::open("namelog.txt")?;
+        let reader = BufReader::new(file);
+        let names = reader.lines().collect::<Result<Vec<_>, _>>()?;
+        Ok(names)
     }
 
     fn update_score(&mut self, winner_name: &String, loser_name: &String) -> Result<(), Box<dyn Error>> {
-        // Check if the winner's name is in the leaderboard and namelog
-        if self.namelog.contains(winner_name) {
+        let names = self.load_names()?;
+    
+        // Check if the winner's name is in the namelog
+        if names.contains(winner_name) {
             if let Some(stats) = self.leaderboard.get_mut(winner_name) {
                 stats.wins += 1;
+            } else {
+                return Err(format!("Winner's name not found in leaderboard: {}", winner_name).into());
             }
         } else {
-            return Err("Winner's name not found in leaderboard or namelog.".into());
+            return Err(format!("Winner's name not found in namelog: {}", winner_name).into());
         }
     
-        // Check if the loser's name is in the leaderboard and namelog
-        if self.namelog.contains(loser_name) {
+        // Check if the loser's name is in the namelog
+        if names.contains(loser_name) {
             if let Some(stats) = self.leaderboard.get_mut(loser_name) {
                 stats.losses += 1;
+            } else {
+                return Err(format!("Loser's name not found in leaderboard: {}", loser_name).into());
             }
         } else {
-            return Err("Loser's name not found in leaderboard or namelog.".into());
-        }
-    
-        Ok(())
-    }
-
-    fn start_new_game(&mut self) -> Result<(), Box<dyn Error>> {
-        // Get user input for player names
-        let mut winner_name = String::new();
-        let mut loser_name = String::new();
-        println!("Enter winner's name:");
-        io::stdin().read_line(&mut winner_name)?;
-        println!("Enter loser's name:");
-        io::stdin().read_line(&mut loser_name)?;
-    
-        // Trim the newline character from the user input
-        winner_name = winner_name.trim().to_string();
-        loser_name = loser_name.trim().to_string();
-    
-        // Check if the names exist in namelog.txt
-        if self.namelog.contains(&winner_name) && self.namelog.contains(&loser_name) {
-            // If both names exist in namelog.txt, update the score
-            self.update_score(&winner_name, &loser_name)?;
-        } else {
-            println!("One or both player names do not exist in namelog.txt. Score will not be updated.");
+            return Err(format!("Loser's name not found in namelog: {}", loser_name).into());
         }
     
         Ok(())
@@ -387,13 +332,28 @@ impl Game {
         let path = Path::new("namelog.txt");
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
-    
-        for line in reader.lines() {
-            let name = line?;
-            self.namelog.insert(name);
+
+        for (i, line) in reader.lines().enumerate() {
+                if i == 0 {
+                    continue;
+                }
+        
+            let line = line?;
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() < 1 {
+                continue;
+            }
+            let name = parts[0].to_string();
+            self.namelog.push(name);
         }
-    
+          
         Ok(())
+    }
+
+    fn print_namelog(&self) {
+        for name in &self.namelog {
+            print!(" {}", name);
+        }
     }
 
     fn write_leaderboard(&self) -> Result<(), Box<dyn Error>> {
@@ -402,21 +362,51 @@ impl Game {
         writeln!(file, "{:<5}{:<10}{:<10}{:<10}", "Rank", "Name", "Wins", "Losses")?;
         for (rank, (name, stats)) in self.leaderboard.iter().enumerate() {
             writeln!(file, "{:<5}{:<10}{:<10}{:<10}", rank + 1, name, stats.wins, stats.losses)?;
+        // sort leaderboard by wins and losses
+        let mut leaderboard_vec: Vec<(&String, &PlayerStats)> = self.leaderboard.iter().collect();
+        leaderboard_vec.sort_by(|a, b| {
+            let a_stats = a.1;
+            let b_stats = b.1;
+            let a_total = a_stats.wins + a_stats.losses;
+            let b_total = b_stats.wins + b_stats.losses;
+            b_stats.wins.cmp(&a_stats.wins).then_with(|| b_total.cmp(&a_total))
+        });
+
+        }
+    
+        Ok(())
+    }
+
+    fn start_new_game(&mut self) -> io::Result<()> {
+        // Read the namelog.txt file
+        let file = File::open("namelog.txt")?;
+        let reader = BufReader::new(file);
+    
+        // Update the namelog and leaderboard
+        for line in reader.lines() {
+            let name = line?;
+            if !self.namelog.contains(&name) {
+                self.namelog.push(name.clone());
+                self.leaderboard.insert(name, PlayerStats { wins: 0, losses: 0 });
+            }
         }
     
         Ok(())
     }
 
     fn write_namelog(&self) -> Result<(), Box<dyn Error>> {
+        // Open the namelog.txt file
         let mut file = OpenOptions::new().write(true).truncate(true).open("namelog.txt")?;
-    
+
+        // Write the names to the namelog.txt file
         for name in &self.namelog {
             writeln!(file, "{}", name)?;
         }
-    
+
         Ok(())
     }
 
+    
 }
 
 fn main() {
@@ -430,53 +420,47 @@ fn main() {
     io::stdin().read_line(&mut player2).expect("Failed to read line");
     let _player2 = player2.trim();
 
-    let player1_name = String::from(player1.clone());
-    let player2_name = String::from(player2.clone());
+    //et player1_name = String::from(player1.clone());
+    //let player2_name = String::from(player2.clone());
     let mut game_over = false; 
 
-    let mut game = Game::new('X', 'O', "Player 1".to_string(), "Player 2".to_string());
-    game.set_players('X', 'O', player1.to_string(), player2.to_string());
+    //let player1_trimmed = player1.trim().to_string();
+    //let player2_trimmed = player2.trim().to_string();
+
+    let player1 = Player { name: player1.to_string(), stats: PlayerStats { wins: 0, losses: 0} };
+    let player2 = Player { name: player2.to_string(), stats: PlayerStats { wins: 0, losses: 0} };
+    let mut game = Game::new('X', 'O', &player1, &player2);
+    game.set_players('X', 'O', &player1, &player2);
     match game.load_namelog() {
         Ok(_) => println!("Names loaded successfully."),
         Err(e) => println!("Failed to load namelog: {}", e),
     }
-    match game.check_player_names(&player1_name, &player2_name) {
+    match game.check_player_names(&player1, &player2) {
         Ok(_) => println!("Player names checked successfully."),
         Err(err) => println!("Failed to check player names: {}", err),
     }
-    match game.set_player_names(player1.clone(), player2.clone()) {
+    match game.set_player_names(player1.name.clone(), player2.name.clone()) {
         Ok(_) => println!("Player names set successfully."),
         Err(err) => println!("Failed to set player names: {}", err),
     }
 
-    // Add the player names to the namelog
-    game.namelog.insert(game.player1.clone());
-    game.namelog.insert(game.player2.clone());
-    
     game.play_game();
+    game.print_namelog();
 
     'game_loop: loop {
         game.draw_board();
         game.get_move();
-    
+
         if let Some(winner_name) = game.check_winner() {
-            let loser_name = if winner_name == game.player1 { game.player2.clone() } else { game.player1.clone() };
-            let is_winner_current_player = winner_name == game.current_player.to_string();
-            match game.start_new_game() {
+            let loser_name = if winner_name == game.player1.name { game.player2.name.clone() } else { game.player1.name.clone() };
+            match game.load_names() {
                 Ok(_) => println!(""),
-                Err(e) => println!("Failed to start new game: {}", e),
+                Err(e) => println!("Failed to load names: {}", e),
             }
-            
-            match game.update_leaderboard(&winner_name, is_winner_current_player) {
-                Ok(_) => println!("Leaderboard updated successfully."),
-                Err(e) => println!("Failed to update leaderboard: {}", e),
+            match game.read_leaderboard() {
+                Ok(_) => println!(""),
+                Err(e) => println!("Failed to read leaderboard: {}", e),
             }
-        
-            match game.update_score(&winner_name, &loser_name) {
-                Ok(_) => println!("Score updated successfully."),
-                Err(e) => println!("Failed to update score: {}", e),
-            }
-        
             match game.write_leaderboard() {
                 Ok(_) => println!(""),
                 Err(e) => println!("Failed to write leaderboard: {}", e),
@@ -485,13 +469,21 @@ fn main() {
                 Ok(_) => println!(""),
                 Err(e) => println!("Failed to load leaderboard: {}", e),
             }
-            match game.read_leaderboard() {
+            match game.write_namelog() {
                 Ok(_) => println!(""),
-                Err(e) => println!("Failed to read leaderboard: {}", e),
+                Err(e) => println!("Failed to write namelog: {}", e),
+            }
+            match game.update_score(&winner_name, &loser_name) {
+                Ok(_) => println!(""),
+                Err(e) => println!("Failed to update score: {}", e),
+            }
+            match game.start_new_game() {
+                Ok(_) => println!(""),
+                Err(e) => println!("Failed to start new game: {}", e),
             }
             break 'game_loop; 
         } else {
-            println!("No winner yet.");
+            println!("Player {} turn.", player2);
         }
     
         if game.board_full_check() {
@@ -526,9 +518,6 @@ fn main() {
                         if let Some(winner) = game.check_winner() {
                             game.draw_board();
                             println!("Player {} wins!", winner);
-            
-                            let _ = game.update_leaderboard(&winner, true);
-            
                             match game.write_leaderboard() {
                                 Ok(_) => println!("Leaderboard updated successfully."),
                                 Err(e) => println!("Failed to update leaderboard: {}", e),

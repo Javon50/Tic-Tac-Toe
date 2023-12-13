@@ -1,1 +1,3 @@
 Rank Name      Wins      Losses    
+1    Law       0         0         
+2    Kidd      0         0         
