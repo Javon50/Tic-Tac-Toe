@@ -276,29 +276,40 @@ impl Game {
         Ok(names)
     }
 
-    fn update_score(&mut self, winner_name: &String, loser_name: &String) -> Result<(), Box<dyn Error>> {
-        let names = self.load_names()?;
+    fn score_count(&mut self, winner_name: &str, loser_name: &str) -> Result<(), Box<dyn Error>> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open("namelog.txt")?;
     
-        // Check if the winner's name is in the namelog
-        if names.contains(winner_name) {
-            if let Some(stats) = self.leaderboard.get_mut(winner_name) {
-                stats.wins += 1;
-            } else {
-                return Err(format!("Winner's name not found in leaderboard: {}", winner_name).into());
-            }
-        } else {
-            return Err(format!("Winner's name not found in namelog: {}", winner_name).into());
-        }
+        writeln!(file, "{} W", winner_name)?;
+        writeln!(file, "{} L", loser_name)?;
     
-        // Check if the loser's name is in the namelog
-        if names.contains(loser_name) {
-            if let Some(stats) = self.leaderboard.get_mut(loser_name) {
-                stats.losses += 1;
-            } else {
-                return Err(format!("Loser's name not found in leaderboard: {}", loser_name).into());
+        Ok(())
+    }
+
+    fn update_score(&mut self) -> Result<(), Box<dyn Error>> {
+        let file = File::open("namelog.txt")?;
+        let reader = BufReader::new(file);
+    
+        for line in reader.lines() {
+            let line = line?;
+            let parts: Vec<&str> = line.split_whitespace().collect();
+    
+            if parts.len() < 2 {
+                continue;
             }
-        } else {
-            return Err(format!("Loser's name not found in namelog: {}", loser_name).into());
+    
+            let name = parts[0].to_string();
+            let result = parts[1];
+    
+            if let Some(stats) = self.leaderboard.get_mut(&name) {
+                if result == "W" {
+                    stats.wins += 1;
+                } else if result == "L" {
+                    stats.losses += 1;
+                }
+            }
         }
     
         Ok(())
@@ -356,24 +367,35 @@ impl Game {
         }
     }
 
-    fn write_leaderboard(&self) -> Result<(), Box<dyn Error>> {
+    fn write_leaderboard(&mut self) -> Result<(), Box<dyn Error>> {
+        // Update the leaderboard based on the namelog
+        for entry in &self.namelog {
+            let parts: Vec<&str> = entry.split_whitespace().collect();
+
+            if parts.len() < 2 {
+                continue;
+            }
+
+            let name = parts[0].to_string();
+            let result = parts[1];
+
+            if let Some(stats) = self.leaderboard.get_mut(&name) {
+                if result == "W" {
+                    stats.wins += 1;
+                } else if result == "L" {
+                    stats.losses += 1;
+                }
+            }
+        }
+
+        // Write the leaderboard to the file
         let mut file = OpenOptions::new().write(true).truncate(true).open("leaderboard.txt")?;
-    
+
         writeln!(file, "{:<5}{:<10}{:<10}{:<10}", "Rank", "Name", "Wins", "Losses")?;
         for (rank, (name, stats)) in self.leaderboard.iter().enumerate() {
             writeln!(file, "{:<5}{:<10}{:<10}{:<10}", rank + 1, name, stats.wins, stats.losses)?;
-        // sort leaderboard by wins and losses
-        let mut leaderboard_vec: Vec<(&String, &PlayerStats)> = self.leaderboard.iter().collect();
-        leaderboard_vec.sort_by(|a, b| {
-            let a_stats = a.1;
-            let b_stats = b.1;
-            let a_total = a_stats.wins + a_stats.losses;
-            let b_total = b_stats.wins + b_stats.losses;
-            b_stats.wins.cmp(&a_stats.wins).then_with(|| b_total.cmp(&a_total))
-        });
-
         }
-    
+
         Ok(())
     }
 
@@ -473,7 +495,11 @@ fn main() {
                 Ok(_) => println!(""),
                 Err(e) => println!("Failed to write namelog: {}", e),
             }
-            match game.update_score(&winner_name, &loser_name) {
+            match game.score_count(&winner_name, &loser_name) {
+                Ok(_) => println!(""),
+                Err(e) => println!("Failed to count score: {}", e),
+            }
+            match game.update_score() {
                 Ok(_) => println!(""),
                 Err(e) => println!("Failed to update score: {}", e),
             }

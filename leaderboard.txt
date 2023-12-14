@@ -1,3 +1,5 @@
 Rank Name      Wins      Losses    
-1    Law       0         0         
-2    Kidd      0         0         
+1    Tony      2         0         
+2    Taylor    0         3         
+3    Kaido     0         1         
+4    Shanks    1         0         
